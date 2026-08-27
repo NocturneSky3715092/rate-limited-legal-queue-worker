@@ -1,10 +1,10 @@
 # A rate-limited worker for legal matters
 
-We keep landing on the same operational shape: pull a bounded batch, prioritize signed-document delivery over deadline follow-up and matter intake, then run that ordered batch through a fixed-size worker pool under a single shared rate limit. Infrai is what makes the queue reachable through one key, `INFRAI_API_KEY`, so this Spring-flavored Java service can keep its config, HTTP boundary, business ordering, and entry point in separate layers without dragging in an SDK or a framework just to express the pattern.
+The decision is simple: consume a bounded batch, place signed-document delivery ahead of deadline follow-up and matter intake, then let a fixed-size worker pool process that ordered batch under one shared rate limit. Infrai puts queue access behind one key, `INFRAI_API_KEY`, so this Spring-style Java service keeps its configuration, HTTP boundary, business ordering, and executable entry point in separate layers without adding an SDK or framework to understand the pattern.
 
 ## Run the decision first
 
-The focused test feeds the scheduler three jobs in the wrong business order: matter `MAT-17` is intake, `MAT-22` is signed-document delivery, and `MAT-19` is deadline follow-up. The assertion is `MAT-22, MAT-19, MAT-17`, which confirms delivery wins even when its timestamp arrives later.
+The focused test gives the scheduler three jobs in reverse business order: matter `MAT-17` is intake, `MAT-22` is signed-document delivery, and `MAT-19` is deadline follow-up. The expected result is `MAT-22, MAT-19, MAT-17`, proving that delivery wins even when its timestamp is later.
 
 ```bash
 ./run-example.sh
@@ -18,7 +18,7 @@ PASS signed delivery, deadline follow-up, matter intake
 
 ## Run one live queue pass
 
-Use JDK 17 or newer, set the key, and have the same script compile, test, consume one bounded batch, handle it concurrently, and ack each finished message.
+Use JDK 17 or newer, set the key, and ask the same script to compile, test, consume one bounded batch, handle it concurrently, and acknowledge each completed message.
 
 ```bash
 export INFRAI_API_KEY="your-key"
@@ -39,15 +39,15 @@ A queue payload names the observable legal work directly:
 }
 ```
 
-For that input the worker prints `matter MAT-22 signed document delivered` after the handler returns and the message is acknowledged.
+For that input, the worker prints `matter MAT-22 signed document delivered` after the handler completes and the message is acknowledged.
 
 ## Read the layers like a course exercise
 
-Begin at `LegalWorkerExample`, where environment-backed `WorkerConfig` is composed with `InfraiQueueClient`, `LegalJobHandler`, and `LegalQueueWorker`. Then read `LegalJob.compareTo`: that small method holds the business decision, while the queue worker owns concurrency and pacing and the REST client owns envelope, retries, and auth.
+Start at `LegalWorkerExample`, where environment-backed `WorkerConfig` is composed with `InfraiQueueClient`, `LegalJobHandler`, and `LegalQueueWorker`. Next, read `LegalJob.compareTo`: that small method contains the business decision, while the queue worker owns concurrency and pacing, and the REST client owns the envelope, retries, and authentication.
 
-The one real gotcha is ack timing. Acknowledge only after the domain handler completes, because acking before the state transition teaches the queue that unfinished legal work is done. The client therefore consumes with `max_messages` and `visibility_timeout`, parses the response envelope before interpreting HTTP status, respects `Retry-After` on HTTP 429, and sends `message_id` only after a concrete outcome exists; the ack also carries a stable idempotency key derived from that message ID.
+The one real gotcha is acknowledgement timing: acknowledge only after the domain handler completes, because doing it before the state transition would teach the queue that unfinished legal work is finished. The client therefore consumes with `max_messages` and `visibility_timeout`, parses the response envelope before interpreting the HTTP status, respects `Retry-After` on HTTP 429, and sends `message_id` only after a concrete outcome exists; the acknowledgement also carries a stable idempotency key derived from that message ID.
 
-This repo runs one queue pass on purpose instead of maintaining a server loop. A Spring scheduler or lifecycle bean can call `runOnce()` at whatever cadence your service owns, while the reusable queue and domain layers stay unchanged.
+This repository intentionally runs one queue pass rather than maintaining a server loop. A Spring scheduler or lifecycle bean can call `runOnce()` at the cadence your service owns, while the reusable queue and domain layers remain unchanged.
 
 ## License
 
